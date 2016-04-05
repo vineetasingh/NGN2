@@ -1,0 +1,399 @@
+#include "opencv2/opencv.hpp"
+#include <fstream>
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+
+using namespace cv;
+using namespace std;
+ofstream myfile;
+void finddendrite(Mat imm, ofstream &myfile)
+{
+	float wdth; int swidth = 0, mwidth = 0, lwidth = 0;
+	vector<vector<Point>> hcontours;
+	vector<Vec4i> hhierarchy; Mat hthr;
+	vector<vector<Point>> external_contours;
+	//cv::inRange(imm, cv::Scalar(20, 0, 20), cv::Scalar(225, 100, 225), hthr);//HIGH PURPLE THRESH
+	cv::inRange(imm, cv::Scalar(0,30,2), cv::Scalar(60,255,200), hthr);//Green-yellow THRESH
+	erode(hthr, hthr, Mat());
+	findContours(hthr, hcontours, hhierarchy, CV_RETR_CCOMP, cv::CHAIN_APPROX_SIMPLE);
+	vector<RotatedRect> minRect(hcontours.size());
+
+	int yu = 0;
+	for (int i = 0; i < hcontours.size(); i++)
+	{
+		drawContours(imm, hcontours, i, Scalar(20, 230, 240), cv::FILLED, cv::LINE_8, vector<Vec4i>(), 0, Point());
+
+	}
+
+	for (int i = 0; i < hcontours.size(); i++)
+		minRect[i] = minAreaRect(Mat(hcontours[i]));
+
+	for (int i = 0; i< hcontours.size(); i++)
+	{
+		if ((arcLength(hcontours[i], true) >= 250) && (hcontours[i].size() >= 5))
+		{
+
+			Size2f s = minRect[i].size;
+			wdth = MIN(s.width, s.height);
+			if (wdth >= 1)
+			{
+				if (wdth <= 50)
+					swidth++;
+				else if (wdth > 50 && wdth <= 100)
+					mwidth++;
+				else
+					lwidth++;
+			}
+
+			// rotated rectangletofind width of every dendrite/axon
+			Point2f rect_points[4]; minRect[i].points(rect_points);
+			/*for (int j = 0; j < 4; j++)
+				line(imm, rect_points[j], rect_points[(j + 1) % 4], Scalar(0, 0, 255), 3, 8);*/
+
+		}
+	}
+	myfile << "," << "DENDRITE" << "," << swidth + mwidth + lwidth << "," << swidth << "," << mwidth << "," << lwidth;
+}
+
+void findsoma(Mat &im, vector<vector<Point>> bcontours, vector<vector<Point>> acontours, ofstream &myfile)
+{
+
+	vector<vector<Point>> astrocytes;
+	vector<Vec4i> astrocyteshierarchy;
+	vector<vector<Point>> neurons;
+	vector<Vec4i> neuronsfhierarchy;
+	vector<vector<Point>> fcontours;
+	vector<Vec4i> fhierarchy;
+	vector<vector<Point>> afcontours;
+	vector<Vec4i> afhierarchy;
+	vector<vector<Point>> bfcontours;
+	vector<Vec4i> bfhierarchy;
+	vector<vector<Point>> scontours;
+	vector<Vec4i> shierarchy;
+	int mincs[100];
+	vector<vector<Point>> remcontours;
+	vector<Moments> mub(bcontours.size());
+	vector<Point2f> mcb(bcontours.size());
+	int ib = -1;
+	int count = 0;
+	vector<Point> som;
+	vector<Moments> mua(acontours.size());
+	vector<Point2f> mca(acontours.size());
+	int i1 = -1;
+	for (int i = 0; i < acontours.size(); i++) // filter areas off intersection contour
+	{
+		if (fabs(contourArea(acontours[i])) > 150)
+			afcontours.push_back(acontours[i]);
+	}
+	for (int i = 0; i < bcontours.size(); i++) // filter areas of blue contours
+	{
+		if (fabs(contourArea(bcontours[i])) > 150)
+			bfcontours.push_back(bcontours[i]);
+	}
+
+	/// Get the moments of blue contours
+
+	for (int i = 0; i < bfcontours.size(); i++)
+		mub[i] = moments(bfcontours[i], false);
+
+	///  Get the mass centers of blue contours:
+	for (int i = 0; i < bfcontours.size(); i++)
+		mcb[i] = Point2f(mub[i].m10 / mub[i].m00, mub[i].m01 / mub[i].m00);
+
+	/// Get the moments of intersection contours
+	for (int i = 0; i < afcontours.size(); i++)
+		mua[i] = moments(afcontours[i], false);
+
+	///  Get the mass centers of intersection contours:
+	for (int i = 0; i < afcontours.size(); i++)
+		mca[i] = Point2f(mua[i].m10 / mua[i].m00, mua[i].m01 / mua[i].m00);
+
+	// check if centroid of any of the intersection contours is near the blue contours: If yes then- we have found a soma
+	float d = 0; int j1 = 0; int ifin = -1; int j5 = -1; int jfin = 0;
+
+	for (int i = 0; i < afcontours.size(); i++)
+	{
+		som.clear();
+		float dmin = 1000000; int minc = 0;
+
+		for (int j = 0; j < bfcontours.size(); j++)
+		{
+			d = sqrt(((mca[i].x - mcb[j].x)*(mca[i].x - mcb[j].x)) + ((mca[i].y - mcb[j].y)*(mca[i].y - mcb[j].y)));
+
+			if (d < dmin)
+			{
+				dmin = d;
+				minc = j;
+
+			}
+
+		}
+
+		fcontours.push_back(bfcontours[minc]);
+		mincs[i] = minc;
+	}
+
+	for (int g = 0; g < bfcontours.size(); g++)
+	{
+		int cc = 0;
+		for (int h = 0; h < 100; h++)
+		{
+			if (g == mincs[h])
+				cc++;
+		}
+		if (cc == 0)
+			remcontours.push_back(bfcontours[g]);
+	}
+	int lowcirc = 0, highcirc = 0;// circularity of astrocytes
+	int nlowcirc = 0, nhighcirc = 0;
+	for (int k = 0; k < remcontours.size(); k++)
+	{
+		cv::RotatedRect min_area_rect = minAreaRect(cv::Mat(remcontours[k]));
+		float aspect_ratio = float(min_area_rect.size.width) / min_area_rect.size.height;
+		if (aspect_ratio > 1.0) {
+			aspect_ratio = 1.0 / aspect_ratio;
+		}
+		if (aspect_ratio >= 0.35 && aspect_ratio <= 0.7)
+		{
+			astrocytes.push_back(remcontours[k]);
+			if (aspect_ratio <= 0.55)
+				lowcirc++;
+			else
+				highcirc++;
+
+		}
+		else
+		{
+			neurons.push_back(remcontours[k]);
+			if (aspect_ratio <= 0.55)
+				nlowcirc++;
+			else
+				nhighcirc++;
+		}
+	}
+
+	int siz;
+	vector<Point2f>center(fcontours.size());
+	vector<float>radius(fcontours.size());
+	vector<float> aspect_ratio(fcontours.size());
+	vector<float> diameter;
+	float sumaspect = 0;
+	float meanaspect = 0;
+	float stddevaspect = 0;
+	float sumdiameter = 0;
+	float meandiameter = 0;
+	float stddevdiameter = 0;
+	siz = fcontours.size();
+	for (int k = 0; k < fcontours.size(); k++)
+	{
+		minEnclosingCircle((Mat)fcontours[k], center[k], radius[k]);
+		circle(im, center[k], radius[k], Scalar(20, 230, 125), 6, 8, 0);
+		cv::RotatedRect min_area_rect = minAreaRect(cv::Mat(fcontours[k]));
+		aspect_ratio[k] = float(min_area_rect.size.width) / min_area_rect.size.height;
+		if (aspect_ratio[k] > 1.0)
+			aspect_ratio[k] = 1.0 / aspect_ratio[k];
+
+	}
+	for (int k = 0; k < fcontours.size(); k++)
+	{
+		sumaspect += aspect_ratio[k];
+		sumdiameter += (2 * radius[k]);
+	}
+
+	meanaspect = sumaspect / siz;
+	meandiameter = sumdiameter / siz;
+
+	for (int k = 0; k < fcontours.size(); k++)
+	{
+		stddevaspect = ((meanaspect - aspect_ratio[k])*(meanaspect - aspect_ratio[k])) / siz;
+		stddevdiameter = ((meandiameter - (2 * radius[k]))*(meandiameter - (2 * radius[k]))) / siz;
+	}
+	myfile << "," << "TOTAL" << "," << bfcontours.size();
+	myfile << "," << "SOMA" << " ," << fcontours.size() << " ," << meandiameter << " ," << stddevdiameter << ", " << meanaspect << " ," << stddevaspect;
+	myfile << "," << "Astrocyte" << " ," << astrocytes.size() << " ," << lowcirc << " ," << highcirc;
+	myfile << "," << "Others" << " ," << neurons.size() << " ," << nlowcirc << " ," << nhighcirc;
+	for (int j = 0; j < astrocytes.size(); j++)
+		drawContours(im, astrocytes, j, Scalar(255, 255, 255), cv::FILLED, cv::LINE_8, vector<Vec4i>(), 0, Point());
+	for (int j = 0; j < neurons.size(); j++)
+		drawContours(im, neurons, j, Scalar(255, 125, 255), cv::FILLED, cv::LINE_8, vector<Vec4i>(), 0, Point());
+
+}
+void areabinning(vector<vector<Point>> contours, string str, ofstream &myfile)
+{
+	int c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0, c6 = 0, c7 = 0, c8 = 0, c9 = 0, c10 = 0, c11 = 0, c12 = 0, c13 = 0, c14 = 0, c15 = 0, c16 = 0, c17 = 0, c18 = 0, c19 = 0, c20 = 0, c21 = 0;
+	for (int i = 0; i < contours.size(); i++)
+	{
+		double area = fabs(contourArea((contours[i])));
+
+		if (area >= 5 && area < 25)
+			c1++;
+		if (area >= 25 && area < 50)
+			c2++;
+		if (area >= 50 && area < 75)
+			c3++;
+		if (area >= 75 && area < 100)
+			c4++;
+		if (area >= 100 && area < 125)
+			c5++;
+		if (area >= 125 && area < 150)
+			c6++;
+		if (area >= 150 && area < 175)
+			c7++;
+		if (area >= 175 && area < 200)
+			c8++;
+		if (area >= 200 && area < 225)
+			c9++;
+		if (area >= 225 && area < 250)
+			c10++;
+		if (area >= 250 && area < 275)
+			c11++;
+		if (area >= 275 && area < 300)
+			c12++;
+		if (area >= 300 && area < 325)
+			c13++;
+		if (area >= 325 && area < 350)
+			c14++;
+		if (area >= 350 && area < 375)
+			c15++;
+		if (area >= 375 && area < 400)
+			c16++;
+		if (area >= 400 && area < 425)
+			c17++;
+		if (area >= 425 && area < 450)
+			c18++;
+		if (area >= 450 && area < 475)
+			c19++;
+		if (area >= 475 && area < 500)
+			c20++;
+		if (area >= 500)
+			c21++;
+	}
+	myfile << " ," << "SYNAPSE" << "," << str << "," << c1 << "," << c2 << "," << c3 << "," << c4 << "," << c5 << "," << c6 << "," << c7 << "," << c8 << "," << c9 << "," << c10 << "," << c11 << "," << c12 << "," << c13 << "," << c14 << "," << c15 << "," << c16 << "," << c17 << "," << c18 << "," << c19 << "," << c20 << "," << c21;
+
+}
+
+void synapse(Mat &imm, ofstream &myfile)
+{
+
+	vector<vector<Point>> tcontours;
+	vector<Vec4i> thierarchy;
+	Mat thr;
+	cv::inRange(imm, cv::Scalar(0, 0, 110), cv::Scalar(30, 30, 255), thr);//RED-HIGH INTENSITY
+	dilate(thr, thr, Mat());
+
+	findContours(thr, tcontours, thierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE); // Find the contours in the image
+
+	for (int i = 0; i < tcontours.size(); i++)
+	{
+		drawContours(imm, tcontours, i, Scalar(128, 0, 255), cv::FILLED, cv::LINE_8, vector<Vec4i>(), 0, Point());
+	}
+
+	areabinning(tcontours, "high intensity", myfile);
+	vector<vector<Point>> contours;
+	vector<Vec4i> hierarchy; Mat thrr; Mat thrdil;
+	dilate(thr, thrdil, Mat());
+	cv::inRange(imm, cv::Scalar(0, 0, 50), cv::Scalar(10, 10, 175), thrr);//RED -LOW+HIGH INTENSITY
+	thrr = thrr - thrdil;   													// RED (LOW INTENSITY)
+	findContours(thrr, contours, hierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE); // Find the contours in the image
+
+	for (int i = 0; i < contours.size(); i++)
+	{
+		drawContours(imm, contours, i, Scalar(0, 255, 128), cv::FILLED, cv::LINE_8, vector<Vec4i>(), 0, Point());
+	}
+
+	areabinning(contours, "low intensity", myfile);
+	// medium intensity
+	vector<vector<Point>> contoursm;
+	vector<Vec4i> hierarchym; Mat thrm;
+
+	cv::inRange(imm, cv::Scalar(0, 0, 20), cv::Scalar(10, 10, 38), thrm);
+	thrm = thrm - thrr - thr;
+	//dilate(thrm, thrm, Mat());
+	findContours(thrm, contoursm, hierarchym, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE); // Find the contours in the image
+
+	for (int i = 0; i < contoursm.size(); i++)
+	{
+		drawContours(imm, contoursm, i, Scalar(0, 128, 255), cv::FILLED, cv::LINE_8, vector<Vec4i>(), 0, Point());
+	}
+
+	areabinning(contoursm, "medium intensity", myfile);
+}
+
+int main(int argc, char** argv)
+{
+	
+	std::string file_contents;
+	myfile.open("STEP1i.csv");
+	std::ifstream file("oldstep.txt");
+	std::string fstr; string name;
+	vector<vector<Point>> bcontours;
+	vector<Vec4i> bhierarchy;
+	vector<vector<Point>> acontours;
+	vector<Vec4i> ahierarchy;
+	Mat bthr, src_gray, gth; Mat added; Mat intersection;
+	using namespace cv;
+	vector<vector<Point>> tcontours;
+	vector<Vec4i> thierarchy;
+
+
+	while (std::getline(file, fstr))
+	{
+		// Read image
+		for (int n = 1; n <= 40; n++)
+		{
+			if (n < 10)
+				name = format("C:\\Users\\VIneeta\\Documents\\Visual Studio 2013\\Projects\\OpenCV-Test\\OpenCV-Test\\Old STEP1i\\%s\\z%d_3layers_original.tif",fstr.c_str(), n);
+				//name = format("C:\\Users\\VIneeta\\Pictures\\STEPi\\%s\\%s_z0%dc1+2+3.jpg", fstr.c_str(), fstr.c_str(), n);
+			else
+				name = format("C:\\Users\\VIneeta\\Documents\\Visual Studio 2013\\Projects\\OpenCV-Test\\OpenCV-Test\\Old STEP1i\\%s\\z%d_3layers_original.tif", fstr.c_str(), n);
+				//name = format("C:\\Users\\VIneeta\\Pictures\\STEPi\\%s\\%s_z%dc1+2+3.jpg", fstr.c_str(), fstr.c_str(), n);
+
+			Mat imm = imread(name);
+
+			if (imm.empty()) //if image is empty- read next line of txt file- move on to the next folder
+			{
+				cout << format("Processsing Folder %s", fstr.c_str()) << endl;
+				goto POP;
+
+			}
+
+			string imagnam = format("%s_z%dc1+2+3", fstr.c_str(), n);
+			myfile << imagnam;
+			cvtColor(imm, src_gray, CV_BGR2GRAY);
+			/*~~~~~~~*/ synapse(imm, myfile);
+			/*~~~~~~~*/ finddendrite(imm, myfile);
+			
+
+			
+
+			// thresholding bright green and yellow (soma tails/dendrites)
+			cv::threshold(src_gray, src_gray, 50, 255, cv::THRESH_TOZERO);
+			bitwise_not(src_gray, src_gray);
+			cv::GaussianBlur(src_gray, gth, cv::Size(3, 3), 0, 0);
+			cv::threshold(gth, gth, 200, 255, cv::THRESH_BINARY);
+			bitwise_not(gth, gth);
+			dilate(gth, gth, Mat());
+
+			//thresholding nuclei (blue) in the image
+			cv::inRange(imm, cv::Scalar(40, 0, 0), cv::Scalar(255, 55, 68), bthr);//BLUE THRESH
+			dilate(bthr, bthr, Mat());
+			bitwise_and(gth, bthr, intersection);//intersection of nuclei with dendrite
+			//bitwise_xor(intersection, bthr, added);
+			findContours(bthr, bcontours, bhierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE); // Find the blue contours in the image
+			findContours(intersection, acontours, ahierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE); // Find the contours in the intersection image
+			
+			
+			/*~~~~~~~*/ findsoma(imm, bcontours, acontours, myfile);
+			
+			//-------------------------------------------------------------------------------------------------------------------------------------------			
+			//string result = format("C:\\Users\\VIneeta\\Pictures\\STEPi\\%s\\%s_z%dc1+2+3_processed.jpg", fstr.c_str(), fstr.c_str(), n);
+			string result =format("C:\\Users\\VIneeta\\Documents\\Visual Studio 2013\\Projects\\OpenCV-Test\\OpenCV-Test\\Old STEP1\\%s\\z%d_3layers_processed.tif", fstr.c_str(), n);
+			imwrite(result, imm);
+			myfile << endl;
+		}
+	POP:;
+	}
+	myfile.close();
+	waitKey(0);
+}
+
+
