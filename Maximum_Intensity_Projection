@@ -1,0 +1,73 @@
+#include <iostream>     // std::cout
+#include <algorithm>    // std::min_element, std::max_element
+#include "opencv2/core/core.hpp"
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+#include <string>
+#include<conio.h>
+#include <opencv/cv.h>
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/features2d/features2d.hpp"
+#include <fstream>
+#include "opencv2/imgproc/imgproc.hpp"
+#include <iostream>
+#include<vector>
+#include "opencv2/opencv.hpp "
+
+
+
+using namespace cv;
+using namespace std;
+
+
+
+Mat mip(vector<Mat> input)
+{
+	Mat result=input[0].clone(); int max = 0;
+
+	for (int i = 0; i < input[0].rows; i++)
+	{ 
+		cout << " 1" << endl;
+		for (int j = 0; j < input[0].cols; j++)
+		{
+			//cout << " 2" << endl;
+			max = input[0].at<uchar>(j, i);
+			for (int k = 0; k < input.size(); k++)
+			{
+				cout << " 3," << k<<endl;
+				if (input[k].at<uchar>(j, i)>max)
+					result.at<uchar>(j, i) = input[k].at<uchar>(j, i);
+
+			}
+		}
+	}
+	return result;
+}
+
+
+
+int main()
+{
+	vector<Mat> zimages; Mat x, result;
+	for (int i = 1; i <= 7; i++)
+	{
+		string imagepath = format("C:\\Users\\sinvp6\\Desktop\\data\\z%d_3layers_original.tif", i);
+		string store = format("%d.tif", i);
+		x = imread(imagepath);
+		//cv::resize(x, x, cv::Size(), 0.5, 0.5);
+		cvtColor(x, x, CV_RGB2GRAY);
+		imwrite(store, x);
+		zimages.push_back(x);
+	}
+	
+	//result = mip(zimages);
+	//imshow(" mip",result);
+	//imwrite(" mip.tif", result);
+	_getch();
+	
+	waitKey(0);
+	return 0;
+
+	
+	
+}
