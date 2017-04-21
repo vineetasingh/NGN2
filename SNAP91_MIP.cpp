@@ -1,4 +1,4 @@
-//SNAP91 Kristen code
+
 #include <iostream>     // std::cout
 #include <algorithm>    // std::min_element, std::max_element
 #include "opencv2/core/core.hpp"
@@ -18,7 +18,7 @@
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 using namespace cv;
 using namespace std;
-const int somathreshold = 500;
+const int somathreshold = 1000;
 const int bluecontourthreshold = 1000;
 RNG rng;
 
@@ -602,16 +602,13 @@ void findsoma(Mat im, Mat imr, vector<vector<Point>> blue_contours, vector<vecto
 
 		Mat thr_high_Synapse;
 		cv::inRange(imr, cv::Scalar(0, 0, 200), cv::Scalar(30, 30, 255), thr_high_Synapse);//RED-HIGH INTENSITY
+
 		// medium intensity
 		Mat thr_medium_Synapse;
 		cv::inRange(imr, cv::Scalar(0, 0, 100), cv::Scalar(10, 10, 200), thr_medium_Synapse);//RED -LOW+HIGH INTENSITY
 
 		Mat thr_low_Synapse;
 		cv::inRange(imr, cv::Scalar(0, 0, 50), cv::Scalar(10, 10, 100), thr_low_Synapse);
-
-
-
-
 
 		int siz;
 		vector<Point2f>center(final_soma_contours.size());
@@ -720,6 +717,7 @@ void synapse(Mat &imm, ofstream &myfile)
 	imwrite("z_highsynapse.tif", thr_high_Synapse);
 	imwrite("z_medsynapse.tif", thr_medium_Synapse);
 	imwrite("z_lowsynapse.tif", thr_low_Synapse);
+	cout << "OUT";
 	/*~~~~~~~~~~~~*///areabinning(low_intensity_contours, "low intensity", myfile);
 }
 vector<vector<Point>> watershedcontours(Mat src, Mat grayB, Mat bw)
@@ -801,7 +799,7 @@ vector<vector<Point>> watershedcontours(Mat src, Mat grayB, Mat bw)
 	{
 		Mat dst2;
 		src.copyTo(dst2, (markers == obj));
-		cv::inRange(dst2, cv::Scalar(110, 0, 0), cv::Scalar(255, 50, 50), dst2);//BLUE THRESH
+		cv::inRange(dst2, cv::Scalar(180, 0, 0), cv::Scalar(255, 50, 50), dst2);//BLUE THRESH
 		morphologyEx(dst2, dst2, CV_MOP_CLOSE, kernel2);
 		morphologyEx(dst2, dst2, CV_MOP_CLOSE, kernel2);
 		findContours(dst2, final_contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
@@ -840,7 +838,7 @@ int main(int argc, char** argv)
 {
 	std::string file_contents;
 	ofstream myfile;
-	myfile.open("SNAP91_RERETEST.csv");
+	myfile.open("SNAP91_TEST.csv");
 	std::ifstream file("SNAP91.txt");
 	std::string fstr; string name;
 	vector<vector<Point>> blue_contours;
@@ -900,6 +898,7 @@ int main(int argc, char** argv)
 			Mat in1[] = { bgr[0], empty_image, empty_image };
 			int from_to1[] = { 0, 0, 1, 1, 2, 2 };
 			mixChannels(in1, 3, &result_blue, 1, from_to1, 3);
+			result_blue = changeimg(result_blue, 10, 5);
 			stackimb.push_back(result_blue);
 
 			// in step2 red and green is exchanged (because the staning is done that way)
@@ -907,12 +906,15 @@ int main(int argc, char** argv)
 			Mat in2[] = { empty_image, empty_image, bgr[1] };
 			int from_to2[] = { 0, 0, 1, 1, 2, 2 };
 			mixChannels(in2, 3, &result_green, 1, from_to2, 3);
+			result_green=changeimg(result_green, 2000, 0);
 			stackimg.push_back(result_green);
+
 
 
 			Mat in3[] = { empty_image, bgr[2], empty_image };
 			int from_to3[] = { 0, 0, 1, 1, 2, 2 };
 			mixChannels(in3, 3, &result_red, 1, from_to3, 3);
+			result_red = changeimg(result_red, 20, 5);
 			stackimr.push_back(result_red);
 
 		}
@@ -921,9 +923,6 @@ int main(int argc, char** argv)
 		resultg = mip(stackimg, 2);
 		resultr = mip(stackimr, 1);
 		Mat temp;
-		resultb = changeimg(resultb, 10, 0);
-		resultr = changeimg(resultr, 10, 5);//final MIP, enhace images (resultr=red, resultb=blue, resultg=green)//green
-		resultg = changeimg(resultg, 20, 0);//red
 		temp = resultg;
 		resultg = resultr;
 		resultr = temp;
@@ -955,13 +954,13 @@ int main(int argc, char** argv)
 		Mat C, ttt;
 		//C = resultb + resultg;
 		normalize(resultb, resultb, 0, 255., NORM_MINMAX);
-		addWeighted(resultb, 0.7, resultg, 0.8, 0, C);
+		addWeighted(resultb, 0.7, resultg, 0.6, 0, C);
 		C = C+ cv::Scalar(0,-25, -25);
-		imwrite("C.png", C);
+		imwrite("C.png", resultb);
 
 		//thresholding nuclei (blue) in the image
 		cv::Mat element = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7, 7));
-		cv::inRange(C, cv::Scalar(120, 0, 0), cv::Scalar(255, 20, 10), bthr);//BLUE THRESH
+		cv::inRange(resultb, cv::Scalar(200, 0, 0), cv::Scalar(255, 20, 10), bthr);//BLUE THRESH
 		//cv::inRange(C, cv::Scalar(150,0,0), cv::Scalar(255,10, 10), ttt);//BLUE THRESH
 		//dilate(bthr, bthr, Mat());
 		//bthr = bthr - ttt;
